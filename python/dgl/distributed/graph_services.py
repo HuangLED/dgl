@@ -59,9 +59,11 @@ def _sample_neighbors(local_g, partition_book, seed_nodes, fan_out, edge_dir, pr
         local_g, local_ids, fan_out, edge_dir, prob, replace, _dist_training=True)
     global_nid_mapping = local_g.ndata[NID]
     src, dst = sampled_graph.edges()
+    print('LOCAL ID: ', src, dst)
     global_src, global_dst = F.gather_row(global_nid_mapping, src), \
             F.gather_row(global_nid_mapping, dst)
     global_eids = F.gather_row(local_g.edata[EID], sampled_graph.edata[EID])
+    print('GLOBAL ID: ', global_src, global_dst)
     return global_src, global_dst, global_eids
 
 def _find_edges(local_g, partition_book, seed_edges):
@@ -192,6 +194,7 @@ def _distributed_access(g, nodes, issue_remote_req, local_access):
     we combine the data from the local machine and remote machines.
     In this way, we can hide the latency of accessing data on remote machines.
 
+    # HUANG - MARK#1
     Parameters
     ----------
     g : DistGraph
@@ -208,11 +211,13 @@ def _distributed_access(g, nodes, issue_remote_req, local_access):
     DGLHeteroGraph
         The subgraph that contains the neighborhoods of all input nodes.
     '''
+    print('RHUANG - 1')
     req_list = []
     partition_book = g.get_partition_book()
     nodes = toindex(nodes).tousertensor()
     partition_id = partition_book.nid2partid(nodes)
     local_nids = None
+    # 为什么需要是个循环？
     for pid in range(partition_book.num_partitions()):
         node_id = F.boolean_mask(nodes, partition_id == pid)
         # We optimize the sampling on a local partition if the server and the client
@@ -226,22 +231,27 @@ def _distributed_access(g, nodes, issue_remote_req, local_access):
             req = issue_remote_req(node_id)
             req_list.append((pid, req))
 
+    print('RHUANG - 2')
+    # Mark #2.
     # send requests to the remote machine.
     msgseq2pos = None
     if len(req_list) > 0:
-        msgseq2pos = send_requests_to_machine(req_list)
+        msgseq2pos = send_requests_to_machine(req_list)  # RHUANG
 
+    print('RHUANG - 3')
     # sample neighbors for the nodes in the local partition.
     res_list = []
     if local_nids is not None:
         src, dst, eids = local_access(g.local_partition, partition_book, local_nids)
         res_list.append(LocalSampledGraph(src, dst, eids))
 
+    print('RHUANG - 4')
     # receive responses from remote machines.
     if msgseq2pos is not None:
         results = recv_responses(msgseq2pos)
         res_list.extend(results)
 
+    print('RHUANG - 5')
     sampled_graph = merge_graphs(res_list, g.number_of_nodes())
     return sampled_graph
 
